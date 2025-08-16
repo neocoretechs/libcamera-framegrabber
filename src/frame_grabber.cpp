@@ -16,7 +16,6 @@ using namespace libcamera;
 using namespace std::chrono_literals;
 std::vector<std::unique_ptr<Request>> requests;
 BufferMapper bufferMapper;
-std::mutex mtx;
 BlockingDeque frameQueue(10); // Holds JPEG frames
 static std::shared_ptr<Camera> camera;
 FrameBufferAllocator *allocator = nullptr;
@@ -39,9 +38,13 @@ static void requestComplete(Request *request)
         }
         int fd = buffer->planes()[0].fd.get();
         size_t size = metadata.planes()[0].bytesused;
-        void *data = bufferMapper.get(fd);
-        std::unique_lock<std::mutex> lock(mtx);
+        void *data = bufferMapper.map(fd,size);
+        if(!data) {
+            std::cerr << " Failed to map buffer fd=" << fd << std::endl;
+            continue;
+        }
         frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + size));
+        std::cout << "Exit" << std::endl;
     }
 }
 
@@ -51,8 +54,7 @@ int FrameGrabber::startCapture(std::string cameraId) {
     std::cout << cam->id() << std::endl;
     auto cameras = cm->cameras();
     if (cameras.empty()) {
-        std::cout << "No cameras were identified on the system."
-              << std::endl;
+        std::cout << "No cameras were identified on the system." << std::endl;
         cm->stop();
         return EXIT_FAILURE;
     }
