@@ -10,7 +10,6 @@ JNIEXPORT jlong JNICALL Java_FrameGrabber_startCapture(JNIEnv *env, jobject obj,
     std::string cameraName = std::string(nameChars);
     grabber->startCapture(cameraName);
     env->ReleaseStringUTFChars(jname, nameChars);
-    grabber->startCapture(cameraName);
     return reinterpret_cast<jlong>(grabber);
 }
 

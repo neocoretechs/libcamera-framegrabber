@@ -14,14 +14,38 @@
 #include "blocking_deque.cpp"
 using namespace libcamera;
 using namespace std::chrono_literals;
+std::vector<std::unique_ptr<Request>> requests;
 BufferMapper bufferMapper;
 std::mutex mtx;
-std::vector<uint8_t> sharedFrame;
 BlockingDeque frameQueue(10); // Holds JPEG frames
 static std::shared_ptr<Camera> camera;
 FrameBufferAllocator *allocator = nullptr;
-int startCapture(std::string cameraId) {
-    std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+std::thread captureThread;
+bool running = true;
+FrameGrabber::FrameGrabber() {
+}
+static void requestComplete(Request *request)
+{
+    const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
+    for (auto bufferPair : buffers) {
+        FrameBuffer *buffer = bufferPair.second;
+        const FrameMetadata &metadata = buffer->metadata();
+        std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: ";
+        unsigned int nplane = 0;
+        for (const FrameMetadata::Plane &plane : metadata.planes()){
+            std::cout << plane.bytesused;
+            if (++nplane < metadata.planes().size()) std::cout << "/";
+        }
+        int fd = buffer->planes()[0].fd.get();
+        size_t size = metadata.planes()[0].bytesused;
+        void *data = bufferMapper.get(fd);
+        std::unique_lock<std::mutex> lock(mtx);
+        frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + size));
+    }
+}
+
+int FrameGrabber::startCapture(std::string cameraId) {
     cm->start();
     for (auto const &cam : cm->cameras())
     std::cout << cam->id() << std::endl;
@@ -33,7 +57,7 @@ int startCapture(std::string cameraId) {
         return EXIT_FAILURE;
     }
     // get camerId from Java
-    std::string cameraId = cameras[0]->id();
+    //std::string cameraId = cameras[0]->id();
     camera = cm->get(cameraId);
     camera->acquire();
   
@@ -55,7 +79,7 @@ int startCapture(std::string cameraId) {
     }
     Stream *stream = streamConfig.stream();
     const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
-    std::vector<std::unique_ptr<Request>> requests;
+
     for (unsigned int i = 0; i < buffers.size(); ++i) {
         std::unique_ptr<Request> request = camera->createRequest();
         if (!request){
@@ -69,55 +93,32 @@ int startCapture(std::string cameraId) {
             return ret;
         }
         requests.push_back(std::move(request));
-        if (request->status() == Request::RequestCancelled)
-            return;        
+ 
     }
     camera->requestCompleted.connect(requestComplete);
     camera->start();
-    for (std::unique_ptr<Request> &request : requests) {
-        for(;;) {
-            for (const std::unique_ptr<FrameBuffer> &buffer : buffers) {
-                for (const FrameBuffer::Plane &plane : buffer->planes()) {
-                    int fd = plane.fd.get();
-                    size_t length = plane.length;
-                    void *data = bufferMapper.map(fd, length);
-                    if (!data) {
-                        std::cerr << "Failed to map buffer plane\n";
-                        continue;
-                    }
-                }
+    captureThread = std::thread([this]() {
+        while (running) {
+            if (requests.empty()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
-            camera->queueRequest(request.get());
-            request->reuse(Request::ReuseBuffers); 
+            for (std::unique_ptr<Request> &request : requests) {
+                camera->queueRequest(request.get());
+                request->reuse(Request::ReuseBuffers);
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));  // Prevent CPU hogging
+            }
         }
-    }
-}
-static void requestComplete(Request *request)
-{
-    const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
-    for (auto bufferPair : buffers) {
-        FrameBuffer *buffer = bufferPair.second;
-        const FrameMetadata &metadata = buffer->metadata();
-        std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: ";
-        unsigned int nplane = 0;
-        for (const FrameMetadata::Plane &plane : metadata.planes()){
-            std::cout << plane.bytesused;
-            if (++nplane < metadata.planes().size()) std::cout << "/";
-        }
-        int fd = buffer->planes()[0].fd.get();
-        size_t size = metadata.planes()[0].bytesused;
-        void *data = bufferMapper.get(fd);
-        std::unique_lock<std::mutex> lock(mtx);
-        sharedFrame.assign((uint8_t *)data, (uint8_t *)data + size);
-        frameQueue.push(sharedFrame);
-    }
+    });
+    return 0; 
 }
 
-std::vector<uint8_t> getJPEGFrame() {
+std::vector<uint8_t> FrameGrabber::getJPEGFrame() {
     return frameQueue.pop();
 }
 
-void closeCamera() {           
+void FrameGrabber::closeCamera() {
+    running = false;
+    if (captureThread.joinable()) captureThread.join();         
     while (!frameQueue.empty())
         frameQueue.pop();
     bufferMapper.cleanup();

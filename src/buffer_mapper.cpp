@@ -15,15 +15,14 @@ class BufferMapper {
         void *ptr;
         size_t length;
     };
-
     std::map<int, MappingInfo> mapped_;
-
     void logTrace(int fd, void *ptr, size_t length) {
 
         std::cout << "[BufferMapper] Mapped fd=" << fd
                   << " to ptr=" << ptr << " (" << length << " bytes)\n";
     }
 public:
+    BufferMapper(){}
     ~BufferMapper() {
         cleanup();
     }
