@@ -14,7 +14,8 @@
 using namespace libcamera;
 using namespace std::chrono_literals;
 
-FrameGrabber::FrameGrabber(): frameQueue(10), cm(std::make_unique<CameraManager>()) {}
+FrameGrabber::FrameGrabber(libcamera::CameraManager* cameraManager): frameQueue(10), cm(cameraManager) {
+}
 
 void FrameGrabber::requestComplete(libcamera::Request *request)
 {
@@ -39,15 +40,14 @@ void FrameGrabber::requestComplete(libcamera::Request *request)
 }
 
 int FrameGrabber::startCapture(std::string cameraId) {
-    cm->start();
-    for (auto const &cam : cm->cameras())
-    std::cout << cam->id() << std::endl;
-    auto cameras = cm->cameras();
-    if (cameras.empty()) {
-        std::cout << "No cameras were identified on the system." << std::endl;
-        cm->stop();
-        return EXIT_FAILURE;
-    }
+    //for (auto const &cam : cm->cameras())
+    //std::cout << cam->id() << std::endl;
+    //auto cameras = cm->cameras();
+    //if (cameras.empty()) {
+    //    std::cout << "No cameras were identified on the system." << std::endl;
+    //    cm->stop();
+    //    return EXIT_FAILURE;
+    //}
     // get camerId from Java
     //std::string cameraId = cameras[0]->id();
     camera = cm->get(cameraId);
@@ -164,9 +164,7 @@ void FrameGrabber::closeCamera() {
         delete allocator;
         camera->release();
         camera.reset();
-        cm->stop();
     }
 }
 FrameGrabber::~FrameGrabber() {
-    closeCamera(); // Ensure cleanup happens automatically
 }

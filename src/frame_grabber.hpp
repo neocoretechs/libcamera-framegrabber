@@ -21,7 +21,7 @@
 
 class FrameGrabber {
 public:
-    FrameGrabber();
+    FrameGrabber(libcamera::CameraManager* cm);
     ~FrameGrabber();
 
     int startCapture(std::string cameraId);
