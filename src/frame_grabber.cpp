@@ -11,26 +11,14 @@
 #include <condition_variable>
 #include <queue>
 #include <algorithm>
-#include "buffer_mapper.cpp"
-#include "blocking_deque.cpp"
 using namespace libcamera;
 using namespace std::chrono_literals;
-std::mutex mtx_;
-std::vector<std::unique_ptr<Request>> requests;
-std::queue<Request *> requestQueue;
-BufferMapper bufferMapper;
-BlockingDeque frameQueue(10); // Holds JPEG frames
-static std::shared_ptr<Camera> camera;
-Stream *stream = nullptr;
-FrameBufferAllocator *allocator = nullptr;
-std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 
-bool running = true;
-FrameGrabber::FrameGrabber() {
-}
-static void requestComplete(Request *request)
+FrameGrabber::FrameGrabber(): frameQueue(10), cm(std::make_unique<CameraManager>()) {}
+
+void FrameGrabber::requestComplete(libcamera::Request *request)
 {
-     if (request->status() == Request::RequestCancelled)
+    if (request->status() == Request::RequestCancelled)
         return;
     const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
     for (auto bufferPair : buffers) {
@@ -112,7 +100,7 @@ int FrameGrabber::startCapture(std::string cameraId) {
         }
         requests.push_back(std::move(request));
     }
-    camera->requestCompleted.connect(requestComplete);
+    camera->requestCompleted.connect(this, &FrameGrabber::requestComplete);
     int ret = camera->start();
     if (ret) {
         std::cout << "Failed to start capture" << std::endl;

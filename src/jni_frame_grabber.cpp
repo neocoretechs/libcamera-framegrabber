@@ -1,6 +1,5 @@
 #include "frame_grabber.hpp"
 #include <jni.h>
-#include "blocking_deque.cpp" 
 
 extern "C" {
 
