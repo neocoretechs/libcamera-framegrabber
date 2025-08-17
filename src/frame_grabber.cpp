@@ -21,6 +21,7 @@ std::queue<Request *> requestQueue;
 BufferMapper bufferMapper;
 BlockingDeque frameQueue(10); // Holds JPEG frames
 static std::shared_ptr<Camera> camera;
+Stream *stream = nullptr;
 FrameBufferAllocator *allocator = nullptr;
 std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
 
@@ -43,6 +44,7 @@ static void requestComplete(Request *request)
             std::cerr << " Failed to get map buffer fd=" << fd << std::endl;
             continue;
         }
+        std::cout << "Push frameQueue bytes from requestComplete:" << size << " seq: " << std::setw(6) << std::setfill('0') << buffer->metadata().sequence << std::endl;
         frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + size));
     }
     requestQueue.push(request);
@@ -79,7 +81,7 @@ int FrameGrabber::startCapture(std::string cameraId) {
         size_t allocated = allocator->buffers(cfg.stream()).size();
         std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
     }
-    Stream *stream = streamConfig.stream();
+    stream = streamConfig.stream();
     const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
 
     for (unsigned int i = 0; i < buffers.size(); ++i) {
@@ -131,9 +133,9 @@ int FrameGrabber::startCapture(std::string cameraId) {
 std::vector<uint8_t> FrameGrabber::getJPEGFrame() {
      std::unique_lock<std::mutex> lock(mtx_);
     // int w, h, stride;
-    if (!requestQueue.empty()){
+    if (!requestQueue.empty()) {
         Request *request = requestQueue.front();
-
+        /*
         const Request::BufferMap &buffers = request->buffers();
         for (auto it = buffers.begin(); it != buffers.end(); ++it) {
             FrameBuffer *buffer = it->second;
@@ -142,9 +144,11 @@ std::vector<uint8_t> FrameGrabber::getJPEGFrame() {
                 const FrameMetadata::Plane &meta = buffer->metadata().planes()[i];   
                 void *data = bufferMapper.get(plane.fd.get());
                 int length = (std::min)(meta.bytesused, plane.length);
+                std::cout << "Push frameQueue bytes from getJPEGFrame:" << length << " seq: " << std::setw(6) << std::setfill('0') << buffer->metadata().sequence << std::endl;
                 frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + length));
             }
         }
+        */
         requestQueue.pop();
         request->reuse(Request::ReuseBuffers);
         int ret = camera->queueRequest(request);
@@ -157,21 +161,22 @@ std::vector<uint8_t> FrameGrabber::getJPEGFrame() {
 }
 
 void FrameGrabber::closeCamera() {
-    running = false;        
-    while (!frameQueue.empty())
-        frameQueue.pop();
-    while (!requestQueue.empty()) {
-        requestQueue.pop();
-        std::cerr << "Popped outstanding request during teardown" << std::endl;
-    }
-    bufferMapper.cleanup();
-    delete allocator;
-    allocator = nullptr;
-    if (camera) {
+    running = false;
+    if (camera) {     
+        while (!frameQueue.empty())
+            frameQueue.pop();
+        while (!requestQueue.empty()) {
+            requestQueue.pop();
+            //std::cerr << "Popped outstanding request during teardown" << std::endl;
+        }
         camera->requestCompleted.disconnect(this);
+        bufferMapper.cleanup();
         camera->stop();
+        allocator->free(stream);
+        delete allocator;
         camera->release();
         camera.reset();
+        cm->stop();
     }
 }
 FrameGrabber::~FrameGrabber() {
