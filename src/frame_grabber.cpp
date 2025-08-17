@@ -1,7 +1,6 @@
 #include <iostream>
 #include <iomanip>
 #include <memory>
-#include <thread>
 #include <chrono>
 #include <libcamera/camera.h>
 #include "frame_grabber.hpp"
@@ -9,23 +8,29 @@
 #include <libcamera/camera_manager.h>
 #include <libcamera/framebuffer_allocator.h>
 #include <mutex>
-
+#include <condition_variable>
+#include <queue>
+#include <algorithm>
 #include "buffer_mapper.cpp"
 #include "blocking_deque.cpp"
 using namespace libcamera;
 using namespace std::chrono_literals;
+std::mutex mtx_;
 std::vector<std::unique_ptr<Request>> requests;
+std::queue<Request *> requestQueue;
 BufferMapper bufferMapper;
 BlockingDeque frameQueue(10); // Holds JPEG frames
 static std::shared_ptr<Camera> camera;
 FrameBufferAllocator *allocator = nullptr;
 std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
-std::thread captureThread;
+
 bool running = true;
 FrameGrabber::FrameGrabber() {
 }
 static void requestComplete(Request *request)
 {
+     if (request->status() == Request::RequestCancelled)
+        return;
     const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
     for (auto bufferPair : buffers) {
         FrameBuffer *buffer = bufferPair.second;
@@ -33,13 +38,14 @@ static void requestComplete(Request *request)
         int fd = buffer->planes()[0].fd.get();
         size_t size = metadata.planes()[0].bytesused;
         std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: " << size << std::endl;
-        void *data = bufferMapper.map(fd,size);
+        void *data = bufferMapper.get(fd);
         if(!data) {
-            std::cerr << " Failed to map buffer fd=" << fd << std::endl;
+            std::cerr << " Failed to get map buffer fd=" << fd << std::endl;
             continue;
         }
         frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + size));
     }
+    requestQueue.push(request);
 }
 
 int FrameGrabber::startCapture(std::string cameraId) {
@@ -82,45 +88,87 @@ int FrameGrabber::startCapture(std::string cameraId) {
             std::cerr << "Can't create request" << std::endl;
             return -ENOMEM;
         }
-        const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
-        int ret = request->addBuffer(stream, buffer.get());
-        if (ret < 0) {
-            std::cerr << "Can't set buffer for request"<< std::endl;
-            return ret;
+        for (StreamConfiguration &cfg : *config) {
+            Stream *stream = cfg.stream();
+            const std::vector<std::unique_ptr<FrameBuffer>> &buffers =
+                allocator->buffers(stream);
+            const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+
+            int ret = request->addBuffer(stream, buffer.get());
+            if (ret < 0) {
+                std::cerr << "Can't set buffer for request"
+                      << std::endl;
+                return ret;
+            }
+            for (const FrameBuffer::Plane &plane : buffer->planes()) {
+                //void *memory = mmap(NULL, plane.length, PROT_READ, MAP_SHARED,
+                //            plane.fd.get(), 0);
+                //mappedBuffers_[plane.fd.get()] =
+                //    std::make_pair(memory, plane.length);
+                bufferMapper.map(plane.fd.get(), plane.length);
+            }
         }
         requests.push_back(std::move(request));
- 
     }
     camera->requestCompleted.connect(requestComplete);
-    camera->start();
-    captureThread = std::thread([this]() {
-        while (running) {
-            if (requests.empty()) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            }
-            for (std::unique_ptr<Request> &request : requests) {
-                camera->queueRequest(request.get());
-                request->reuse(Request::ReuseBuffers);
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));  // Prevent CPU hogging
-            }
+    int ret = camera->start();
+    if (ret) {
+        std::cout << "Failed to start capture" << std::endl;
+        return ret;
+    }
+    for (std::unique_ptr<Request> &request : requests) {
+        int ret = camera->queueRequest(request.get());
+        //request->reuse(Request::ReuseBuffers);
+        if (ret < 0) {
+            std::cerr << "Can't queue request" << std::endl;
+            camera->stop();
+            return ret;
         }
-    });
+    }
     return 0; 
 }
 
 std::vector<uint8_t> FrameGrabber::getJPEGFrame() {
+     std::unique_lock<std::mutex> lock(mtx_);
+    // int w, h, stride;
+    if (!requestQueue.empty()){
+        Request *request = requestQueue.front();
+
+        const Request::BufferMap &buffers = request->buffers();
+        for (auto it = buffers.begin(); it != buffers.end(); ++it) {
+            FrameBuffer *buffer = it->second;
+            for (unsigned int i = 0; i < buffer->planes().size(); ++i) {
+                const FrameBuffer::Plane &plane = buffer->planes()[i];
+                const FrameMetadata::Plane &meta = buffer->metadata().planes()[i];   
+                void *data = bufferMapper.get(plane.fd.get());
+                int length = (std::min)(meta.bytesused, plane.length);
+                frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + length));
+            }
+        }
+        requestQueue.pop();
+        request->reuse(Request::ReuseBuffers);
+        int ret = camera->queueRequest(request);
+        //request->reuse(Request::ReuseBuffers);
+        if (ret < 0) {
+            std::cerr << "Can't queue request for re-use" << std::endl;
+        }
+    } 
     return frameQueue.pop();
 }
 
 void FrameGrabber::closeCamera() {
-    running = false;
-    if (captureThread.joinable()) captureThread.join();         
+    running = false;        
     while (!frameQueue.empty())
         frameQueue.pop();
+    while (!requestQueue.empty()) {
+        requestQueue.pop();
+        std::cerr << "Popped outstanding request during teardown" << std::endl;
+    }
     bufferMapper.cleanup();
     delete allocator;
     allocator = nullptr;
     if (camera) {
+        camera->requestCompleted.disconnect(this);
         camera->stop();
         camera->release();
         camera.reset();
