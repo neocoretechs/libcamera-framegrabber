@@ -4,12 +4,12 @@
 
 extern "C" {
 
-JNIEXPORT jlong JNICALL Java_FrameGrabber_startCapture(JNIEnv *env, jobject obj, jboolean jflip) {
+JNIEXPORT jlong JNICALL Java_com_neocoretechs_robocore_video_FrameGrabber_startCapture(JNIEnv *env, jobject obj, jboolean jflip) {
     StereoFrameGrabber* grabber = new StereoFrameGrabber(jflip);
     return reinterpret_cast<jlong>(grabber);
 }
 
-JNIEXPORT jobjectArray JNICALL Java_FrameGrabber_getStereoJPEGFrames(JNIEnv* env, jobject obj, jlong handle) {
+JNIEXPORT jobjectArray JNICALL Java_com_neocoretechs_robocore_video_FrameGrabber_getStereoJPEGFrames(JNIEnv* env, jobject obj, jlong handle) {
     StereoFrameGrabber* grabber = reinterpret_cast<StereoFrameGrabber*>(handle);
     if (!grabber) return nullptr;
     // Create a Java byte[][] array with 2 elements
@@ -44,7 +44,7 @@ JNIEXPORT jobjectArray JNICALL Java_FrameGrabber_getStereoJPEGFrames(JNIEnv* env
     return stereoArray;
 }
 
-JNIEXPORT void JNICALL Java_FrameGrabber_cleanup(JNIEnv *env, jobject obj, jlong handle) {
+JNIEXPORT void JNICALL Java_com_neocoretechs_robocore_video_FrameGrabber_cleanup(JNIEnv *env, jobject obj, jlong handle) {
     StereoFrameGrabber* grabber = reinterpret_cast<StereoFrameGrabber*>(handle);
     grabber->closeCamera();
 }

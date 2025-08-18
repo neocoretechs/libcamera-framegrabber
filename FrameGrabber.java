@@ -3,13 +3,13 @@ public class FrameGrabber {
     static {
         System.loadLibrary("libcamera_framegrabber");
     }
-
-    public native long startCapture(boolean flip);
-    public native byte[][] getStereoJPEGFrames(long handle);
-    public native void cleanup(long handle);
+    //native method bindings look like this:
+    //public native long startCapture(boolean flip);
+    //public native byte[][] getStereoJPEGFrames(long handle);
+    //public native void cleanup(long handle);
 
     public static void main(String[] args) {
-        FrameGrabber cam1 = new FrameGrabber();
+        com.neocoretechs.robocore.video.FrameGrabber cam1 = new com.neocoretechs.robocore.video.FrameGrabber();
         long handle1 = cam1.startCapture(false);
 	for(int i = 0; i < 100; i++) {
         byte[][] jpegFrame = cam1.getStereoJPEGFrames(handle1);
