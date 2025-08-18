@@ -27,13 +27,13 @@ void FrameGrabber::requestComplete(libcamera::Request *request)
         const FrameMetadata &metadata = buffer->metadata();
         int fd = buffer->planes()[0].fd.get();
         size_t size = metadata.planes()[0].bytesused;
-        std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: " << size << std::endl;
+        //std::cout << " seq: " << std::setw(6) << std::setfill('0') << metadata.sequence << " bytesused: " << size << std::endl;
         void *data = bufferMapper.get(fd);
         if(!data) {
             std::cerr << " Failed to get map buffer fd=" << fd << std::endl;
             continue;
         }
-        std::cout << "Push frameQueue bytes from requestComplete:" << size << " seq: " << std::setw(6) << std::setfill('0') << buffer->metadata().sequence << std::endl;
+        //std::cout << "Push frameQueue bytes from requestComplete:" << size << " seq: " << std::setw(6) << std::setfill('0') << buffer->metadata().sequence << std::endl;
         frameQueue.push(std::vector<uint8_t>((uint8_t *)data, (uint8_t *)data + size));
     }
     requestQueue.push(request);
@@ -55,7 +55,7 @@ int FrameGrabber::startCapture(std::string cameraId) {
   
     std::unique_ptr<CameraConfiguration> config = camera->generateConfiguration( { StreamRole::Viewfinder } );
     StreamConfiguration &streamConfig = config->at(0);
-    std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
+    //std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
     streamConfig.size.width = 640;
     streamConfig.size.height = 480;
     camera->configure(config.get());
@@ -67,7 +67,7 @@ int FrameGrabber::startCapture(std::string cameraId) {
             return -ENOMEM;
         }
         size_t allocated = allocator->buffers(cfg.stream()).size();
-        std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
+        //std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
     }
     stream = streamConfig.stream();
     const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);

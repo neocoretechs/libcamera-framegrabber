@@ -41,7 +41,7 @@ public:
     } else {
         mapped_[fd] = { ptr, length };
     }
-    logTrace(fd, ptr, length);
+    //logTrace(fd, ptr, length);
     return (ptr == MAP_FAILED) ? nullptr : ptr;
 #endif
     }
