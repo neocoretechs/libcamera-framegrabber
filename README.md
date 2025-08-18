@@ -41,8 +41,8 @@ libcamera-framegrabber
    cd build
    cmake ..
    make
+  ```
 NOTE you might have to edit the link.txt and remove -llibcamera while keeping -lcamera or fix the cmake depending on platform/install dir of libcamera
-   ```
 
 ## Usage
 - The entry point of the application is located in `src/jni_frame_grabber.cpp`. This file initializes the libcamera framework, sets up the camera, and starts the frame grabbing process when invoked via JNI.
