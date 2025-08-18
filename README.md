@@ -42,6 +42,7 @@ libcamera-framegrabber
    cmake ..
    make
   ```
+
 NOTE you might have to edit the link.txt and remove -llibcamera while keeping -lcamera or fix the cmake depending on platform/install dir of libcamera
 
 ## Usage
